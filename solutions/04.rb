@@ -1,105 +1,102 @@
-class PrivacyFilter
-  attr_accessor :preserve_phone_country_code, :preserve_email_hostname, :partially_preserve_email_username
 
-  def initialize(text)
-    @filtered_text = text
-    @preserve_phone_country_code = false
-    @preserve_email_hostname = false
-    @partially_preserve_email_username = false
-  end
+module RegexConstants
+  TLD = /[[:alpha:]]{2,3}(\.[[:alpha:]]{2})?/
+  DOMAIN_NAME = /[[:alnum:]]|[[:alnum:]][[:alnum:]-]{,60}[[:alnum:]]/
+  SUBDOMAIN = /#{DOMAIN_NAME}/
+  DOMAIN = /#{DOMAIN_NAME}\.#{TLD}/
+  HOSTNAME = /(#{SUBDOMAIN}\.)*#{DOMAIN}/
+  USERNAME = /[[:alnum:]][\w+.-]{,200}/
+  EMAIL = /(?<username>#{USERNAME})@(?<hostname>#{HOSTNAME})/
 
-  def filtered
-    filter_email
-    filter_phone
-    @filtered_text
-  end
+  INTERNATIONAL_CODE = /[1-9]\d{,2}/
+  INTERNATIONAL_PREFIX = /(00|\+)#{INTERNATIONAL_CODE}/
+  PHONE_PREFIX = /0|#{INTERNATIONAL_PREFIX}/
+  PHONE_DELIMITERS = /[ ()-]/
+  PHONE_BODY = /\d(#{PHONE_DELIMITERS}{,2}\d){5,10}/
+  PHONE = /#{PHONE_PREFIX}#{PHONE_DELIMITERS}*#{PHONE_BODY}/
+  INTERNATIONAL_PHONE = /(?<prefix>#{INTERNATIONAL_PREFIX})#{PHONE_DELIMITERS}*#{PHONE_BODY}/
 
-  def filter_email
-    @filtered_text.sub!(/([[:alnum:]]([A-Z0-9\-][^-]){0,61}\.)+[A-Z]{2,3}(\.[A-Z]{2})?/i, "Host")
-    @filtered_text.sub!(/\b[A-Z0-9][A-Z0-9_+.-]{0,200}@Host/i, "[EMAIL]")
-  end
+  BYTE = /0|1\d\d|2[0-4]\d|25[0-5]|[1-9]\d?/
+  IP_ADDRESS = /#{BYTE}(\.#{BYTE}){3}/
 
-  def filter_phone
-    phone = /(0|00|\+[1-9]\d{0,2})(?<phone_number>\d{6,11})/.match @filtered_text
-    if phone == nil then return
-    elsif preserve_phone_country_code then @filtered_text.sub!(phone[:phone_number], " [FILTERED]")
-    else @filtered_text.sub!(/(0|00|\+[1-9]\d{0,2})\d{6,11}/, "[PHONE]")
+  INTEGER = /-?(0|[1-9]\d*)/
+  NUMBER = /#{INTEGER}(\.\d+)?/
+
+  DATE = /\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[1-2]\d|3[0-1])/
+  TIME = /([0-1]\d|2[0-3]):(?<six>[0-5]\d):\g<six>/
+  DATE_TIME = /#{DATE}[ T](#{TIME})/
+end
+
+class Validations
+  class << self
+    include RegexConstants
+
+    def exact?(regex, value)
+      not (value =~ /\A#{regex}\z/).nil?
+    end
+
+    def email?(value)
+      exact?(EMAIL, value)
+    end
+
+    def phone?(value)
+      exact?(PHONE, value)
+    end
+
+    def hostname?(value)
+      exact?(HOSTNAME, value)
+    end
+
+    def ip_address?(value)
+      exact?(IP_ADDRESS, value)
+    end
+
+    def number?(value)
+      exact?(NUMBER, value)
+    end
+
+    def integer?(value)
+      exact?(INTEGER, value)
+    end
+
+    def date?(value)
+      exact?(DATE, value)
+    end
+
+    def time?(value)
+      exact?(TIME, value)
+    end
+
+    def date_time?(value)
+      exact?(DATE_TIME, value)
     end
   end
 end
 
-class Validations
-  def Validations.email?(value)
-    if /^[A-Z0-9][A-Z0-9_+.-]{0,200}@[A-Z0-9.-]+\.[A-Z]{2,4}$/i.match value
-      true
-    else
-      false
-    end
+class PrivacyFilter
+  include RegexConstants
+
+  attr_accessor :preserve_phone_country_code, :preserve_email_hostname, :partially_preserve_email_username
+
+  def initialize(text)
+    @text = text
   end
 
-  def Validations.hostname?(value)
-    if /^([[:alnum:]]([A-Z0-9\-][^-]){0,62}\.)+[A-Z]{2,3}(\.[A-Z]{2})?$/i.match value
-      true
-    else
-      false
-    end
+  def filter_name(name)
+    return '[FILTERED]' if name.length < 6
+    name[0...3] + '[FILTERED]'
   end
 
-  def Validations.phone?(value)
-    if /^(0|00|\+[1-9]\d{0,2})\d{6,11}$/.match value
-      true
-    else
-      false
-    end
+  def filtered_from_email
+    result = @text.dup
+    result.gsub!(EMAIL) { |s| "#{filter_name $1}@#{$2}" } if partially_preserve_email_username
+    result.gsub!(EMAIL, '[FILTERED]@\k<hostname>') if preserve_email_hostname
+    result.gsub(EMAIL, '[EMAIL]')
   end
 
-  def Validations.ip_address?(value)
-    if /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.match value
-      true
-    else
-      false
-    end
-  end
-
-  def Validations.number?(value)
-    if /^\-?(0|[1-9][0-9]*)(\.[0-9]+)?$/.match value
-      true
-    else
-      false
-    end
-  end
-
-  def Validations.integer?(value)
-    Validations.number?(value)
-    if /^\-?(0|[1-9][0-9]*)$/.match value
-      true
-    else
-      false
-    end
-  end
-
-  def Validations.date?(value)
-    if /^\d\d\d\d\-(0[1-9]|1[012])\-(0[1-9]|[12][0-9]|3[01])$/.match value
-      true
-    else
-      false
-    end
-  end
-
-  def Validations.time?(value)
-    if /^([01][0-9]|2[0-3])(:[0-5][0-9]){2}$/.match value
-      true
-    else
-      false
-    end
-  end
-
-  def Validations.date_time?(value)
-    date_and_separator = /^\d\d\d\d\-(0[1-9]|1[012])\-(0[1-9]|[12][0-9]|3[01])( |T)/.match value
-    remaining_text = date_and_separator.post_match unless date_and_separator == nil
-    if /^([01][0-9]|2[0-3])(:[0-5][0-9]){2}$/.match remaining_text then true
-    else
-      false
-    end
+  def filtered
+    result = filtered_from_email
+    result.gsub!(INTERNATIONAL_PHONE, '\k<prefix> [FILTERED]') if preserve_phone_country_code
+    result.gsub(PHONE, '[PHONE]')
   end
 end
